@@ -1,10 +1,11 @@
-use serde_json::Value::{String as JsonString};
+use serde_json::Value;
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum DecoderError {
     NotBencodedData,
     InvalidByteStringLength,
-    InvalidByteString
+    InvalidByteString,
+    InvalidInteger,
 }
 
 pub struct Decoder {
@@ -19,10 +20,13 @@ impl Decoder {
         };
     }
 
-    pub fn decode(&self) -> Result<serde_json::Value, DecoderError> {
+    pub fn decode(&self) -> Result<Value, DecoderError> {
         if self.encoded_data.chars().next().unwrap().is_digit(10) {
             let (decoded_value, _to_skip) = self.decode_bencoded_byte_string()?;
-            return Ok(JsonString(decoded_value.to_string()));
+            return Ok(Value::from(decoded_value.to_string()));
+        } else if self.encoded_data.chars().next().unwrap() == 'i' {
+            let (decoded_value, _to_skip) = self.decode_bencoded_integer()?;
+            return Ok(Value::from(decoded_value));
         }
         return Err(DecoderError::NotBencodedData);
     }
@@ -44,5 +48,31 @@ impl Decoder {
         }
         let string = &encoded_value[colon_index + 1..colon_index + 1 + number];
         return Ok((string, number_string.len() + 1 + string.len()));
+    }
+
+    // https://wiki.theory.org/BitTorrentSpecification#Integers
+    fn decode_bencoded_integer(&self) -> Result<(i64, usize), DecoderError> {
+        let encoded_value = &self.encoded_data;
+        let end_delimiter_index = match encoded_value.find("e") {
+            Some(value) => value,
+            None => return Err(DecoderError::InvalidInteger),
+        };
+
+        let integer_part_string = &encoded_value[1..end_delimiter_index];
+
+        if integer_part_string.len() > 1 && &integer_part_string[0..2] == "-0" {
+            return Err(DecoderError::InvalidInteger);
+        }
+        if integer_part_string.len() > 1 && &integer_part_string[0..2] == "+0" {
+            return Err(DecoderError::InvalidInteger);
+        }
+        if integer_part_string.len() > 1 && integer_part_string.chars().next().unwrap() == '0' {
+            return Err(DecoderError::InvalidInteger);
+        }
+        let integer_part_number = match integer_part_string.parse::<i64>() {
+            Ok(value) => value,
+            Err(_) => return Err(DecoderError::InvalidInteger)
+        };
+        return Ok((integer_part_number, integer_part_string.len() + 2));
     }
 }

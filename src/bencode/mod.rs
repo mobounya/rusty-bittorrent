@@ -3,7 +3,7 @@ pub use decoder::*;
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
+    use serde_json::{Number, Value};
     use super::*;
 
     #[test]
@@ -109,6 +109,119 @@ mod tests {
             Err(err) => {
                 assert_eq!(err, DecoderError::InvalidByteStringLength);
             }
+        }
+    }
+
+    #[test]
+    fn valid_single_digit_integer() {
+        let bencode_byte_string = "i0e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(decoded_value) => {
+                match decoded_value {
+                    Value::Number(decoded_integer) => {
+                        assert_eq!(decoded_integer, Number::from(0));
+                    }
+                    _ => {
+                        panic!("Decoded value should be a Number");
+                    }
+                }
+            }
+            Err(err) => {
+                panic!("Decoding valid integer should not return an error");
+            }
+        }
+    }
+
+    #[test]
+    fn valid_positive_integer() {
+        let bencode_byte_string = "i+42e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(decoded_value) => {
+                match decoded_value {
+                    Value::Number(decoded_integer) => {
+                        assert_eq!(decoded_integer, Number::from(42));
+                    }
+                    _ => {
+                        panic!("Decoded value should be a Number");
+                    }
+                }
+            }
+            Err(err) => {
+                panic!("Decoding a valid integer should not return an error");
+            }
+        }
+    }
+
+    #[test]
+    fn valid_negative_integer() {
+        let bencode_byte_string = "i-42e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(decoded_value) => {
+                match decoded_value {
+                    Value::Number(decoded_integer) => {
+                        assert_eq!(decoded_integer, Number::from(-42));
+                    }
+                    _ => {
+                        panic!("Decoded value should be a Number");
+                    }
+                }
+            }
+            Err(err) => {
+                panic!("Decoding a valid integer should not return an error");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_positive_zero_integer() {
+        let bencode_byte_string = "i+0e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode a positive 0"),
+            Err(err) => assert_eq!(err, DecoderError::InvalidInteger),
+        }
+    }
+
+    #[test]
+    fn invalid_negative_zero_integer() {
+        let bencode_byte_string = "i-0e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode a negative 0"),
+            Err(err) => assert_eq!(err, DecoderError::InvalidInteger),
+        }
+    }
+
+    #[test]
+    fn invalid_begin_delimiter_integer() {
+        let bencode_byte_string = "42e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode invalid integer"),
+            Err(err) => assert_eq!(err, DecoderError::InvalidByteString),
+        }
+    }
+
+    #[test]
+    fn invalid_end_delimiter_integer() {
+        let bencode_byte_string = "i42".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode invalid integer"),
+            Err(err) => assert_eq!(err, DecoderError::InvalidInteger),
+        }
+    }
+
+    #[test]
+    fn invalid_start_with_zero_integer() {
+        let bencode_byte_string = "i011e".to_string();
+        let decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode invalid integer"),
+            Err(err) => assert_eq!(err, DecoderError::InvalidInteger),
         }
     }
 }
