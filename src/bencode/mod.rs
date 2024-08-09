@@ -246,6 +246,7 @@ mod tests {
             Ok(decoded_dict) => {
                 match decoded_dict {
                     Value::Object(decoded_dict) => {
+                        assert_eq!(decoded_dict.len(), 1);
                         // FIXME: should be hello instead of "hello"
                         match decoded_dict.get("\"hello\"") {
                             None => panic!("Dictionary should have a key 'hello'"),
@@ -274,6 +275,7 @@ mod tests {
             Ok(decoded_dict) => {
                 match decoded_dict {
                     Value::Object(decoded_dict) => {
+                        assert_eq!(decoded_dict.len(), 1);
                         // FIXME: should be hello instead of "hello"
                         match decoded_dict.get("\"hello\"") {
                             None => panic!("Dictionary should have a key 'hello'"),
@@ -302,6 +304,7 @@ mod tests {
             Ok(decoded_value) => {
                 match decoded_value {
                     Value::Object(decoded_dict) => {
+                        assert_eq!(decoded_dict.len(), 2);
                         match decoded_dict.get("\"key1\"") {
                             Some(value) => {
                                 match value {
@@ -345,6 +348,81 @@ mod tests {
         match decoder.decode() {
             Ok(_) => panic!("Should not decode Dictionary with key but no value"),
             Err(err) => assert_eq!(err, DecoderError::ValueNotPresentInDictionary)
+        }
+    }
+
+    #[test]
+    fn valid_empty_list() {
+        let bencode_byte_string = "le".to_string();
+        let mut decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(decoded_list) => {
+                match decoded_list {
+                    Value::Array(decoded_list) => assert_eq!(decoded_list.is_empty(), true),
+                    _ => panic!("Decoded value should be of type Array")
+                }
+            },
+            Err(_) => panic!("Should not fail to decoded an empty list")
+        }
+    }
+
+    #[test]
+    fn valid_list_with_one_value() {
+        let bencoded_data = "li42ee".to_string();
+        let mut decoder = Decoder::new(bencoded_data);
+        match decoder.decode() {
+            Ok(decoded_list) => {
+                match decoded_list {
+                    Value::Array(decoded_list) => {
+                        assert_eq!(decoded_list.len(), 1);
+                        assert_eq!(decoded_list[0].as_i64().unwrap(), 42);
+                    },
+                    _ => panic!("Decoded value should be of type Array")
+                }
+            },
+            Err(_) => panic!("Should not fail to decoded a valid list")
+        }
+    }
+
+    #[test]
+    fn valid_list_with_multiple_values() {
+        let expected_list = vec![Value::from("hello"), Value::from(43),
+                                            Value::from("foo"), Value::from(1337)];
+
+        let bencoded_data = "l5:helloi43e3:fooi1337ee".to_string();
+        let mut decoder = Decoder::new(bencoded_data);
+        match decoder.decode() {
+            Ok(decoded_list) => {
+                match decoded_list {
+                    Value::Array(decoded_list) => {
+                        assert_eq!(decoded_list.len(), 4);
+                        assert_eq!(decoded_list.len(), expected_list.len());
+                        assert_eq!(expected_list.eq(&decoded_list), true)
+                    },
+                    _ => panic!("Decoded value should be of type Array")
+                }
+            },
+            Err(_) => panic!("Should not fail to decoded a valid list")
+        }
+    }
+
+    #[test]
+    fn invalid_list_with_no_end_delimeter() {
+        let bencoded_data = "l5:hello5:hello".to_string();
+        let mut decoder = Decoder::new(bencoded_data);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode a list with no ending delimiter"),
+            Err(err) => assert_eq!(err, DecoderError::ListFormatError)
+        }
+    }
+
+    #[test]
+    fn valid_list_with_invalid_data() {
+        let bencoded_data = "lfoo_bare".to_string();
+        let mut decoder = Decoder::new(bencoded_data);
+        match decoder.decode() {
+            Ok(_) => panic!("Should not decode a list with invalid bencoded data"),
+            Err(err) => assert_eq!(err, DecoderError::NotBencodedData)
         }
     }
 }

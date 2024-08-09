@@ -7,7 +7,8 @@ pub enum DecoderError {
     InvalidByteString,
     InvalidInteger,
     DictionaryKeyIsNotAString,
-    ValueNotPresentInDictionary
+    ValueNotPresentInDictionary,
+    ListFormatError
 }
 
 pub struct Decoder {
@@ -31,6 +32,9 @@ impl Decoder {
             return Ok(Value::from(decoded_value));
         } else if self.encoded_data.chars().next().unwrap() == 'd' {
             let decoded_value  = self.decode_bencoded_dictionary()?;
+            return Ok(Value::from(decoded_value));
+        } else if self.encoded_data.chars().next().unwrap() == 'l' {
+            let decoded_value  = self.decode_bencoded_list()?;
             return Ok(Value::from(decoded_value));
         }
         return Err(DecoderError::NotBencodedData);
@@ -85,6 +89,33 @@ impl Decoder {
         let chars_processed = integer_part_string.len() + 2;
         self.encoded_data = encoded_value[chars_processed..].to_string();
         return Ok(integer_part_number);
+    }
+
+    // https://wiki.theory.org/BitTorrentSpecification#Lists
+    fn decode_bencoded_list(&mut self) -> Result<Vec<Value>, DecoderError> {
+        let mut list : Vec<Value> = vec!();
+        let mut found_end_delimeter = false;
+
+        if self.encoded_data == "le" {
+            return Ok(list);
+        }
+
+        self.encoded_data = self.encoded_data[1..].to_string().clone();
+        while !self.encoded_data.is_empty() {
+            let decoded_value = self.decode()?;
+            list.push(decoded_value);
+
+            if !self.encoded_data.is_empty() && self.encoded_data.chars().next().unwrap() == 'e' {
+                found_end_delimeter = true;
+                break;
+            }
+        }
+
+        if !found_end_delimeter {
+            return Err(DecoderError::ListFormatError);
+        }
+
+        return Ok(list);
     }
 
     // https://wiki.theory.org/BitTorrentSpecification#Dictionaries
