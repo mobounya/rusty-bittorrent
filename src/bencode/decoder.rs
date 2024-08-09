@@ -6,34 +6,39 @@ pub enum DecoderError {
     InvalidByteStringLength,
     InvalidByteString,
     InvalidInteger,
+    DictionaryKeyIsNotAString,
+    ValueNotPresentInDictionary
 }
 
 pub struct Decoder {
-    encoded_data : String,
+    encoded_data : String
 }
 
 // https://wiki.theory.org/BitTorrentSpecification#Bencoding
 impl Decoder {
     pub fn new(encoded_data: String) -> Self {
-        return Decoder {
+        Decoder {
             encoded_data,
-        };
+        }
     }
 
-    pub fn decode(&self) -> Result<Value, DecoderError> {
+    pub fn decode(&mut self) -> Result<Value, DecoderError> {
         if self.encoded_data.chars().next().unwrap().is_digit(10) {
-            let (decoded_value, _to_skip) = self.decode_bencoded_byte_string()?;
+            let decoded_value = self.decode_bencoded_byte_string()?;
             return Ok(Value::from(decoded_value.to_string()));
         } else if self.encoded_data.chars().next().unwrap() == 'i' {
-            let (decoded_value, _to_skip) = self.decode_bencoded_integer()?;
+            let decoded_value  = self.decode_bencoded_integer()?;
+            return Ok(Value::from(decoded_value));
+        } else if self.encoded_data.chars().next().unwrap() == 'd' {
+            let decoded_value  = self.decode_bencoded_dictionary()?;
             return Ok(Value::from(decoded_value));
         }
         return Err(DecoderError::NotBencodedData);
     }
 
     // https://wiki.theory.org/BitTorrentSpecification#Byte_Strings
-    fn decode_bencoded_byte_string(&self) -> Result<(&str, usize), DecoderError> {
-        let encoded_value = &self.encoded_data;
+    fn decode_bencoded_byte_string(&mut self) -> Result<String, DecoderError> {
+        let encoded_value = self.encoded_data.clone();
         let colon_index = match encoded_value.find(':') {
             Some(index) => index,
             None => return Err(DecoderError::InvalidByteString),
@@ -46,13 +51,17 @@ impl Decoder {
         if encoded_value[colon_index + 1..].len() < number {
             return Err(DecoderError::InvalidByteStringLength);
         }
-        let string = &encoded_value[colon_index + 1..colon_index + 1 + number];
-        return Ok((string, number_string.len() + 1 + string.len()));
+
+        let string = encoded_value[colon_index + 1..colon_index + 1 + number].to_string().clone();
+        let chars_processed = number_string.len() + 1 + string.len();
+        self.encoded_data = String::from(&encoded_value[chars_processed..]).clone();
+
+        return Ok(string);
     }
 
     // https://wiki.theory.org/BitTorrentSpecification#Integers
-    fn decode_bencoded_integer(&self) -> Result<(i64, usize), DecoderError> {
-        let encoded_value = &self.encoded_data;
+    fn decode_bencoded_integer(&mut self) -> Result<i64, DecoderError> {
+        let encoded_value = self.encoded_data.clone();
         let end_delimiter_index = match encoded_value.find("e") {
             Some(value) => value,
             None => return Err(DecoderError::InvalidInteger),
@@ -73,6 +82,38 @@ impl Decoder {
             Ok(value) => value,
             Err(_) => return Err(DecoderError::InvalidInteger)
         };
-        return Ok((integer_part_number, integer_part_string.len() + 2));
+        let chars_processed = integer_part_string.len() + 2;
+        self.encoded_data = encoded_value[chars_processed..].to_string();
+        return Ok(integer_part_number);
+    }
+
+    // https://wiki.theory.org/BitTorrentSpecification#Dictionaries
+    fn decode_bencoded_dictionary(&mut self) -> Result<serde_json::Map<String, Value>, DecoderError> {
+        let mut dict = serde_json::Map::<String, Value>::new();
+
+        if self.encoded_data == "de" {
+            return Ok(dict);
+        }
+
+        self.encoded_data = self.encoded_data[1..].to_string().clone();
+
+        while !self.encoded_data.is_empty() {
+            let decoded_key = self.decode()?;
+            if !decoded_key.is_string() {
+                return Err(DecoderError::DictionaryKeyIsNotAString);
+            }
+            if self.encoded_data == "e" {
+                return Err(DecoderError::ValueNotPresentInDictionary);
+            }
+            let decoded_value= self.decode()?;
+
+            dict.insert(decoded_key.to_string(), decoded_value.clone());
+
+            if self.encoded_data.chars().next().unwrap() == 'e' {
+                break;
+            }
+        }
+
+        return Ok(dict);
     }
 }
