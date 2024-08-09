@@ -297,6 +297,38 @@ mod tests {
     }
 
     #[test]
+    fn valid_dictionary_with_key_and_list() {
+        let expected_list = vec![Value::from("hello"), Value::from(43),
+                                 Value::from("foo"), Value::from(1337)];
+
+        let bencode_byte_string = "d4:key1l5:helloi43e3:fooi1337eee".to_string();
+        let mut decoder = Decoder::new(bencode_byte_string);
+        match decoder.decode() {
+            Ok(decoded_dict) => {
+                match decoded_dict {
+                    Value::Object(decoded_dict) => {
+                        assert_eq!(decoded_dict.len(), 1);
+                        // FIXME: should be key1 instead of "key1"
+                        match decoded_dict.get("\"key1\"") {
+                            None => panic!("Dictionary should have a key 'key1'"),
+                            Some(value) => {
+                                match value {
+                                    Value::Array(val) => {
+                                        assert_eq!(val.eq(&expected_list), true);
+                                    },
+                                    _ => panic!("Dictionary should have a value of type Array with key 'key1'")
+                                }
+                            }
+                        };
+                    },
+                    _ => panic!("Decoded value should be an Object")
+                }
+            },
+            Err(_) => panic!("Decoding a valid dictionary should not return an error")
+        }
+    }
+
+    #[test]
     fn valid_dictionary_with_2_keys_2_values() {
         let bencode_byte_string = "d4:key1i1e4:key2i2ee".to_string();
         let mut decoder = Decoder::new(bencode_byte_string);
@@ -403,6 +435,33 @@ mod tests {
                 }
             },
             Err(_) => panic!("Should not fail to decoded a valid list")
+        }
+    }
+
+    #[test]
+    fn valid_list_with_dictionary() {
+        let bencoded_data = "ld4:key1i1eee".to_string();
+        let mut decoder = Decoder::new(bencoded_data);
+        match decoder.decode() {
+            Ok(decoded_value) => {
+                match decoded_value {
+                    Value::Array(decoded_list) => {
+                        assert_eq!(decoded_list.len(), 1);
+                        match decoded_list[0].clone() {
+                            Value::Object(decoded_object) => {
+                                assert_eq!(decoded_object.len(), 1);
+                                match decoded_object.get("\"key1\"") {
+                                    Some(value) => assert_eq!(value.as_i64().unwrap(), 1),
+                                    None => panic!("First element should be an object with key \"key1\"")
+                                }
+                            }
+                            _ => panic!("First element in decoded list should be an Object")
+                        }
+                    }
+                    _ => panic!("Decoded value should be an Array")
+                }
+            }
+            Err(_) => panic!("Should not fail to decode valid list")
         }
     }
 
