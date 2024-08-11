@@ -1,5 +1,9 @@
-mod bencode;
+use crate::metainfo::Parser;
+
+mod metainfo;
 
 fn main() {
-    println!("Hello World ! from torrent");
+    let parser = Parser::new("./sample.torrent".to_string());
+    let meta_info = parser.parse().expect("");
+    println!("{:?}", meta_info);
 }
