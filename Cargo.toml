@@ -7,6 +7,8 @@ edition = "2021"
 serde_bytes = "0.11.15"
 serde_bencode = "0.2.4"
 serde = { version = "1.0.204", features = ["derive"] }
+sha1 = "0.10.6"
+base16ct = { version = "0.2.0", features = ["alloc"] }
 
 [[bin]]
 name = "torrent"
