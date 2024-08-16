@@ -1,4 +1,8 @@
 mod tracker_response;
+
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use tokio::io::AsyncWriteExt;
 pub use tracker_response::*;
 
 use crate::metainfo::TorrentMetaInfo;
@@ -15,7 +19,11 @@ pub struct Peers {
 
 impl Peers {
     pub fn new(metainfo : TorrentMetaInfo) -> Self {
-        let length = metainfo.info.length.unwrap();
+        // ad-hoc: length is not available in all torrent files, so I try to deduce the length
+        let length = match metainfo.info.length {
+            None => (metainfo.info.pieces.len() / 20) as u64 * metainfo.info.piece_length,
+            Some(len) => len
+        };
         Peers {
             metainfo,
             peer_id: "13374313374313374369".to_string(),
@@ -27,7 +35,7 @@ impl Peers {
         }
     }
 
-    pub async fn discover(&self) -> Result<TrackerResponse, Box<dyn std::error::Error>>{
+    pub async fn discover(&self) -> Result<TrackerResponse, Box<dyn std::error::Error>> {
         let url = self.construct_url();
         let body = reqwest::get(url)
             .await?
@@ -35,6 +43,23 @@ impl Peers {
             .await?;
         let decoded_value : TrackerResponse = serde_bencode::from_bytes(&*body).expect("could not decode tracker response");
         Ok(decoded_value)
+    }
+
+    // https://wiki.theory.org/BitTorrentSpecification#Handshake
+    pub async fn handshake(&self, peer_ip : &String) -> Result<String, Box<dyn std::error::Error>> {
+        let mut stream = TcpStream::connect(peer_ip).unwrap();
+        let mut bytes : Vec<u8> = vec![];
+        AsyncWriteExt::write_u8(&mut bytes,19).await?;
+        AsyncWriteExt::write(&mut bytes, "BitTorrent protocol".as_bytes()).await?;
+        AsyncWriteExt::write(&mut bytes, &[0; 8]).await?;
+        AsyncWriteExt::write(&mut bytes, &*self.metainfo.info.hash_raw()).await?;
+        AsyncWriteExt::write(&mut bytes, self.peer_id.as_bytes()).await?;
+        Write::write(&mut stream, &mut bytes)?;
+        let mut bytes_read : [u8; 20] = [0; 20];
+        let result = stream.read(&mut bytes_read)?;
+        assert!(!(result > 20), "Read more than 20 bytes");
+        assert!(!(result < 20), "Read less than 20 bytes");
+        Ok(base16ct::lower::encode_string(&bytes_read))
     }
 
     fn urlencode<T: ToString>(data : &T) -> String {

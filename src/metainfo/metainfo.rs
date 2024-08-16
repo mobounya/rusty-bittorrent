@@ -13,8 +13,8 @@ pub struct File {
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Info {
     #[serde(rename = "piece length")]
-    piece_length : i64,
-    pieces : ByteBuf,
+    pub piece_length : u64,
+    pub pieces : ByteBuf,
     private : Option<u8>,
     name : String,
     pub length : Option<u64>,
