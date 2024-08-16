@@ -24,3 +24,7 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# Ignore all torrent files except the sample torrent
+*.torrent
+!sample.torrent

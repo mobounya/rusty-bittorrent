@@ -17,7 +17,7 @@ pub struct Info {
     pieces : ByteBuf,
     private : Option<u8>,
     name : String,
-    length : Option<u64>,
+    pub length : Option<u64>,
     md5sum : Option<String>,
     files : Option<Vec<File>>
 }
@@ -41,31 +41,48 @@ fn bytes_to_hex_string(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02X}", b)).collect()
 }
 
+impl TorrentMetaInfo {
+    pub fn urlencode_info_hash(&self) -> String {
+        let info_hash_raw = self.info.hash_raw();
+        urlencoding::encode_binary(&*info_hash_raw).to_string()
+    }
+}
+
 impl Display for TorrentMetaInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let hash = Sha1::digest(serde_bencode::to_bytes(&self.info).unwrap());
-        let hex_hash = base16ct::lower::encode_string(&hash);
-        writeln!(f, "Tracker url: {}", self.announce);
+        let info_hash = self.info.hash_base16();
+        writeln!(f, "Tracker url: {}", self.announce)?;
         writeln!(f, "name: {}", self.info.name)?;
         writeln!(f, "piece length: {}", self.info.piece_length)?;
         if let Some(length) = self.info.length {
-            writeln!(f, "length: {}", length);
+            writeln!(f, "length: {}", length)?;
         } else {
-            writeln!(f, "length: None");
+            writeln!(f, "length: None")?;
         }
-        writeln!(f, "info hash: {}", hex_hash);
+        writeln!(f, "info hash: {}", info_hash)?;
         if let Some(md5sum) = self.info.md5sum.clone() {
-            write!(f, "md5sum: {}", md5sum);
+            write!(f, "md5sum: {}", md5sum)?;
         } else {
-            writeln!(f, "md5sum: None");
+            writeln!(f, "md5sum: None")?;
         }
-        writeln!(f, "pieces: ");
+        writeln!(f, "pieces: ")?;
         let mut i = 0;
         while i < self.info.pieces.len() {
             let segment = &self.info.pieces[i..i + 20];
-            writeln!(f, "{}", bytes_to_hex_string(segment));
+            writeln!(f, "{}", bytes_to_hex_string(segment))?;
             i += 20;
         }
         write!(f, "")
+    }
+}
+
+impl Info {
+    pub fn hash_base16(&self) -> String {
+        let hash = Sha1::digest(serde_bencode::to_bytes(self).unwrap());
+        base16ct::lower::encode_string(&hash)
+    }
+
+    pub fn hash_raw(&self) -> Vec<u8> {
+        Sha1::digest(serde_bencode::to_bytes(self).unwrap()).to_vec()
     }
 }
