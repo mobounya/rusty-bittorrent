@@ -22,6 +22,25 @@ pub struct TrackerResponse {
 impl Display for TrackerResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let peers = self.peers();
+        match &self.failure_reason {
+            None => writeln!(f, "Failure reason: None", )?,
+            Some(message) => writeln!(f, "Failure reason: {}", message)?,
+        }
+        match &self.warning_message {
+            None => writeln!(f, "Warning message: None", )?,
+            Some(message) => writeln!(f, "Warning message: {}", message)?,
+        }
+        writeln!(f, "Interval: {}", self.interval)?;
+        match &self.min_interval {
+            None => writeln!(f, "Min interval: None", )?,
+            Some(min_interval) => writeln!(f, "Min interval: {}", min_interval)?,
+        }
+        match &self.tracker_id {
+            None => writeln!(f, "Tracker id: None", )?,
+            Some(tracker_id) => writeln!(f, "Tracker id: {}", tracker_id)?,
+        }
+        writeln!(f, "Complete: {}", self.complete)?;
+        writeln!(f, "Incomplete: {}", self.incomplete)?;
         let mut it = peers.iter().peekable();
         writeln!(f, "Peers:")?;
         while let Some(peer_ip) = it.next() {
