@@ -39,7 +39,8 @@ async fn main() {
         let peer_address = args[3].clone();
         let metainfo = parse_torrent_file(&torrent_file_path);
         let peers = Peers::new(metainfo);
-        let peer_id = peers.handshake(&peer_address).await.unwrap();
-        println!("Peer ID: {}", peer_id);
+        let handshake = peers.handshake(&peer_address).unwrap();
+        println!("Peer ID: {}", base16ct::lower::encode_string(&handshake.peer_id));
+        println!("Info hash: {}", base16ct::lower::encode_string(&handshake.info_hash));
     }
 }

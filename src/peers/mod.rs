@@ -1,11 +1,12 @@
 mod tracker_response;
+mod handshake;
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use tokio::io::AsyncWriteExt;
 pub use tracker_response::*;
 
 use crate::metainfo::TorrentMetaInfo;
+use crate::peers::handshake::Handshake;
 
 pub struct Peers {
     metainfo : TorrentMetaInfo,
@@ -46,21 +47,23 @@ impl Peers {
     }
 
     // https://wiki.theory.org/BitTorrentSpecification#Handshake
-    pub async fn handshake(&self, peer_ip : &String) -> Result<String, Box<dyn std::error::Error>> {
-        let mut stream = TcpStream::connect(peer_ip).unwrap();
-        let mut bytes : Vec<u8> = vec![];
-        AsyncWriteExt::write_u8(&mut bytes,19).await?;
-        AsyncWriteExt::write(&mut bytes, "BitTorrent protocol".as_bytes()).await?;
-        AsyncWriteExt::write(&mut bytes, &[0; 8]).await?;
-        AsyncWriteExt::write(&mut bytes, &*self.metainfo.info.hash_raw()).await?;
-        AsyncWriteExt::write(&mut bytes, self.peer_id.as_bytes()).await?;
-        Write::write(&mut stream, &mut bytes)?;
-        let mut bytes_read : [u8; 20] = [0; 20];
-        let result = stream.read(&mut bytes_read)?;
-        assert!(!(result > 20), "Read more than 20 bytes");
-        assert!(!(result < 20), "Read less than 20 bytes");
-        Ok(base16ct::lower::encode_string(&bytes_read))
+    pub fn handshake(&self, peer_ip : &String) -> Result<Handshake, Box<dyn std::error::Error>> {
+        let mut handshake : Handshake = Handshake::new(<[u8; 20]>::try_from(self.metainfo.info.hash_raw()).unwrap(),
+                                                      <[u8; 20]>::try_from(self.peer_id.as_bytes()).unwrap());
+        {
+            let mut stream = TcpStream::connect(peer_ip)?;
+            let handshake_bytes = bytemuck::bytes_of(&handshake);
+            assert_eq!(handshake_bytes.len(), size_of::<Handshake>());
+            stream.write(handshake_bytes)?;
+
+            let mut peer_handshake_bytes: [u8; size_of::<Handshake>()] = [0; size_of::<Handshake>()];
+            let bytes_read = stream.read(&mut peer_handshake_bytes)?;
+            assert_eq!(bytes_read, size_of::<Handshake>());
+            handshake = *bytemuck::from_bytes(&peer_handshake_bytes);
+        }
+        Ok(handshake)
     }
+
 
     fn urlencode<T: ToString>(data : &T) -> String {
         urlencoding::encode(&data.to_string()).to_string()
