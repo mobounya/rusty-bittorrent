@@ -66,11 +66,9 @@ impl Display for TorrentMetaInfo {
             writeln!(f, "md5sum: None")?;
         }
         writeln!(f, "pieces: ")?;
-        let mut i = 0;
-        while i < self.info.pieces.len() {
-            let segment = &self.info.pieces[i..i + 20];
-            writeln!(f, "{}", bytes_to_hex_string(segment))?;
-            i += 20;
+        for offset in (0..self.info.pieces.len()).step_by(20) {
+            let raw_hash_bytes = &self.info.pieces[offset..offset + 20];
+            writeln!(f, "{}", bytes_to_hex_string(raw_hash_bytes))?;
         }
         write!(f, "")
     }

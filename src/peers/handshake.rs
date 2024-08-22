@@ -11,7 +11,6 @@ pub struct Handshake {
     pub peer_id : [u8; 20]
 }
 
-// Implement the bytemuck traits
 unsafe impl bytemuck::Zeroable for Handshake {}
 unsafe impl Pod for Handshake {}
 
