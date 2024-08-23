@@ -5,9 +5,9 @@ use sha1::{Digest, Sha1};
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct File {
-    length : i64,
-    md5sum : Option<String>,
-    path : Vec<String>
+    pub length : i64,
+    pub md5sum : Option<String>,
+    pub path : Vec<String>
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
@@ -15,11 +15,11 @@ pub struct Info {
     #[serde(rename = "piece length")]
     pub piece_length : u64,
     pub pieces : ByteBuf,
-    private : Option<u8>,
-    name : String,
+    pub private : Option<u8>,
+    pub name : String,
     pub length : Option<u64>,
-    md5sum : Option<String>,
-    files : Option<Vec<File>>
+    pub md5sum : Option<String>,
+    pub files : Option<Vec<File>>
 }
 
 // https://wiki.theory.org/BitTorrentSpecification#Metainfo_File_Structure

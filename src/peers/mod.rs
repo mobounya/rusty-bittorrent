@@ -30,7 +30,8 @@ pub struct Peers {
     left : u64,
     compact : bool,
     peers_connections : HashMap<String, TcpStream>,
-    pieces_hash : Vec<String>,
+    pub pieces_hash : Vec<String>,
+    buffer : BytesMut
 }
 
 impl Peers {
@@ -56,6 +57,7 @@ impl Peers {
             compact: true,
             peers_connections: HashMap::new(),
             pieces_hash,
+            buffer: BytesMut::new()
         }
     }
 
@@ -83,15 +85,12 @@ impl Peers {
         assert_eq!(bytes_read, size_of::<Handshake>());
         let handshake : Handshake = *bytemuck::from_bytes(&peer_handshake_bytes);
 
-        self.peers_connections.insert(base16ct::lower::encode_string(&handshake.peer_id), stream);
+        self.peers_connections.insert(peer_ip.clone(), stream);
         Ok(handshake)
     }
 
-    pub fn download_piece(&mut self, peer_ip : &String, piece_index : usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn download_piece(&mut self, peer_ip : &String, piece_index : usize) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         assert!(piece_index < self.pieces_hash.len());
-
-        let handshake = self.handshake(peer_ip)?;
-        let mut tcp_stream = self.peers_connections.get(&base16ct::lower::encode_string(&handshake.peer_id)).unwrap();
 
         let piece_length = if piece_index == (self.pieces_hash.len() - 1) {
             match self.metainfo.info.length.unwrap() % self.metainfo.info.piece_length {
@@ -102,63 +101,38 @@ impl Peers {
             self.metainfo.info.piece_length
         };
 
-        let mut buffer : BytesMut = BytesMut::new();
-        let mut received_bitfield_peer_message = false;
-        let mut received_no_data_counter = 0;
-        let mut downloaded_piece_data : Vec<u8> = vec![0; piece_length as usize];
+        // Don't try to handshake a peer if we already established a connexion
+        let mut tcp_stream : &TcpStream = match self.peers_connections.get(peer_ip) {
+            None => {
+                self.handshake(peer_ip)?;
+                self.peers_connections.get(peer_ip).unwrap()
+            },
+            Some(stream) => {
+                // We already did a handshake with this peer, go ahead and send a piece request
+                self.send_piece_request(peer_ip, piece_index, piece_length)?;
+                stream
+            }
+        };
 
+
+        let mut downloaded_piece_data : Vec<u8> = vec![0; piece_length as usize];
         let mut received_data : usize = 0;
         loop {
-            let mut stream_buffer : [u8; 1024] = [0; 1024];
+            // Try to decode all the bytes in the buffer if you can
             loop {
-                let bytes_read = tcp_stream.read(&mut stream_buffer)?;
-                if bytes_read > 0 {
-                    buffer.extend_from_slice(&stream_buffer[..bytes_read]);
-                    break;
-                } else {
-                    received_no_data_counter += 1;
-                    if received_no_data_counter == 5 {
-                        panic!("Stopped receiving data")
-                    }
-                }
-            }
-
-            // try to decode all the bytes in the buffer if you can
-            loop {
-                let peer_message = PeerMessageDecoder::new().decode(&mut buffer)?;
+                let peer_message = PeerMessageDecoder::new().decode(&mut self.buffer)?;
                 match peer_message {
                     None => break,
                     Some(peer_message) => {
                         match peer_message.message_id {
                             MessageID::Bitfield => {
-                                if received_bitfield_peer_message {
-                                    panic!("Received Bitfield peer message twice");
-                                }
-                                received_bitfield_peer_message = true;
                                 let peer_message = PeerMessage::new(MessageID::Interested, None)?;
                                 let mut buffer : BytesMut = BytesMut::new();
                                 let _ = PeerMessageEncoder::new().encode(peer_message, &mut buffer)?;
                                 tcp_stream.write(buffer.as_ref())?;
                             },
                             MessageID::UnChoke => {
-                                let nblocks = (piece_length + (BLOCK_MAX - 1)) / BLOCK_MAX;
-                                for block in 0..nblocks {
-                                    let block_length;
-                                    if block == nblocks - 1 {
-                                        block_length = piece_length - (block * BLOCK_MAX);
-                                    } else {
-                                        block_length = BLOCK_MAX;
-                                    }
-                                    let piece = Request::new(piece_index as u32, (block * BLOCK_MAX) as u32, block_length as u32);
-                                    let mut piece_bytes : BytesMut = BytesMut::new();
-                                    RequestEncoder::new().encode(piece, &mut piece_bytes)?;
-
-                                    let request_message_peer = PeerMessage::new(MessageID::Request, Some(piece_bytes.to_vec()))?;
-                                    let mut request_message_peer_bytes : BytesMut = BytesMut::new();
-                                    PeerMessageEncoder::new().encode(request_message_peer, &mut request_message_peer_bytes)?;
-
-                                    tcp_stream.write(request_message_peer_bytes.as_ref())?;
-                                }
+                                self.send_piece_request(&peer_ip, piece_index, piece_length)?;
                             },
                             MessageID::Piece => {
                                 let payload = peer_message.payload.expect("Piece message should have a payload");
@@ -169,25 +143,73 @@ impl Peers {
                                 received_data += piece.block.len();
 
                                 if received_data == piece_length as usize {
-                                    let hash = Sha1::digest(&downloaded_piece_data);
-                                    assert_eq!(base16ct::lower::encode_string(&hash), self.pieces_hash[piece_index]);
-                                    let filename = "/tmp/piece-".to_string() + piece_index.to_string().as_str();
-                                    Peers::write_raw_bytes_to_file(&filename, &downloaded_piece_data);
-                                    println!("Wrote {received_data} bytes to file '{filename}'");
-                                    return Ok(());
+                                    return Ok(downloaded_piece_data);
                                 }
                             },
                             _ => panic!("panic")
                         }
                     }
                 }
+            }
 
+            let mut stream_buffer : [u8; 1024] = [0; 1024];
+            let mut received_no_data_counter = 0;
+            loop {
+                let bytes_read = tcp_stream.read(&mut stream_buffer)?;
+                if bytes_read > 0 {
+                    self.buffer.extend_from_slice(&stream_buffer[..bytes_read]);
+                    break;
+                } else {
+                    received_no_data_counter += 1;
+                    if received_no_data_counter == 5 {
+                        panic!("Stopped receiving data")
+                    }
+                }
             }
         }
     }
 
-    fn write_raw_bytes_to_file(filename : &String, raw_data : &Vec<u8>) {
-        let mut file = fs::File::create(filename).expect("Could not create file for piece");
+    pub fn download(&mut self, peer_ip : &String) -> Result<(), Box<dyn std::error::Error>> {
+        let mut torrent_data : Vec<u8> = vec![0; self.metainfo.info.length.unwrap() as usize];
+        for piece in 0..self.pieces_hash.len() {
+            let piece_data = self.download_piece(peer_ip, piece)?;
+            let hash = Sha1::digest(&piece_data);
+            assert_eq!(base16ct::lower::encode_string(&hash), self.pieces_hash[piece]);
+            let piece_start = piece * BLOCK_MAX as usize;
+            torrent_data.splice(piece_start..piece_start + piece_data.len(), piece_data);
+        }
+        // Assume single file
+        let file_path = &self.metainfo.info.name;
+        Peers::write_raw_bytes_to_file(file_path, &torrent_data);
+        println!("Wrote {} bytes to '{}'", torrent_data.len(), file_path);
+        Ok(())
+    }
+
+    fn send_piece_request(&self, peer_ip : &String, piece_index : usize, piece_length : u64) -> Result<(), Box<dyn std::error::Error>> {
+        let mut tcp_stream : &TcpStream = self.peers_connections.get(peer_ip).expect(format!("Not connected to peer with ip {peer_ip}").as_str());
+        let blocks = (piece_length + (BLOCK_MAX - 1)) / BLOCK_MAX;
+        for block in 0..blocks {
+            let block_length;
+            if block == blocks - 1 {
+                block_length = piece_length - (block * BLOCK_MAX);
+            } else {
+                block_length = BLOCK_MAX;
+            }
+            let piece = Request::new(piece_index as u32, (block * BLOCK_MAX) as u32, block_length as u32);
+            let mut piece_bytes : BytesMut = BytesMut::new();
+            RequestEncoder::new().encode(piece, &mut piece_bytes)?;
+
+            let request_message_peer = PeerMessage::new(MessageID::Request, Some(piece_bytes.to_vec()))?;
+            let mut request_message_peer_bytes : BytesMut = BytesMut::new();
+            PeerMessageEncoder::new().encode(request_message_peer, &mut request_message_peer_bytes)?;
+
+            tcp_stream.write(request_message_peer_bytes.as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn write_raw_bytes_to_file(file_path : &String, raw_data : &Vec<u8>) {
+        let mut file = fs::File::create(file_path).expect("Could not create file for piece");
         file.write_all(raw_data.as_slice()).expect("Could not write to piece file");
     }
 

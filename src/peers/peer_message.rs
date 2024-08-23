@@ -149,11 +149,8 @@ impl Decoder for PeerMessageDecoder {
         }
         src.advance(4);
 
-        let mut message_id_byte = [0u8; 1];
-        message_id_byte.copy_from_slice(&src[..1]);
+        let message_id = MessageID::from_u8(src[0])?;
         src.advance(1);
-
-        let message_id = MessageID::from_u8(u8::from_be_bytes(message_id_byte))?;
 
         // Some type of messages do not have a payload
         if message_id.should_have_payload() == false {
